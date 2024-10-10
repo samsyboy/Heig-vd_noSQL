@@ -1,0 +1,28 @@
+{
+  "nom_famille": "Dupont",
+  "description": "Arbre généalogique de la famille Dupont",
+  "details": {
+    "date_creation": "aujourd'hui",
+    "auteur": "Créateur de l'arbre"
+  },
+  "membres": [
+    {
+      "nom": "Jean Dupont",
+      "role": "Père"
+    },
+    {
+      "nom": "Marie Dupont",
+      "role": "Mère"
+    },
+    {
+      "nom": "Paul Dupont",
+      "role": "Fils",
+      "age": 12
+    },
+    {
+      "nom": "Lucie Dupont",
+      "role": "Fille",
+      "age": 8
+    }
+  ]
+}

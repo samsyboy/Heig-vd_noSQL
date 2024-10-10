@@ -1,0 +1,2 @@
+Le fichier de déclaration du module 'pouchdb' est introuvable. '/Users/samuelteixeira/Desktop/HEIG-VD/HEIG COURS/2e/S1/InfraDonn2/vue-project/node_modules/pouchdb/lib/index.js' a implicitement un type 'any'.
+  Essayez 'npm i --save-dev @types/pouchdb' s'il existe, ou ajoutez un nouveau fichier de déclaration (.d.ts) contenant 'declare module 'pouchdb';'
