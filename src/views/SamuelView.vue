@@ -34,7 +34,8 @@
 
         <!-- Actions pour chaque post -->
         <div class="post-actions">
-          <button @click="editPost(post._id)">Modifier</button>
+          <button @click="editPost(post._id)">Modifier le nom</button>
+          <button @click="editDescription(post._id)">Modifier la description</button>
           <button v-if="post._rev" @click="deletePost(post._id, post._rev)">Supprimer</button>
         </div>
 
@@ -68,27 +69,36 @@ import PouchDB from 'pouchdb'
 import PouchDBFind from 'pouchdb-find'
 PouchDB.plugin(PouchDBFind)
 
+// Interface pour les pièces jointes
+interface Attachment {
+  url: string
+  type: string
+}
+
 // Définition de l'interface pour les posts
 interface Post {
-  _id: string // Identifiant unique
-  _rev?: string // Révision du document
-  name?: string // Nom du post
-  description?: string // Description du post
-  attachments?: Record<string, { url: string; type: string }> // Pièces jointes
+  _id: string
+  _rev?: string
+  name?: string
+  description?: string
+  attachments?: Record<string, Attachment>
+}
+
+// Interface pour le document PouchDB
+interface PouchDocument extends Post {
+  _rev: string
 }
 
 export default {
   data() {
     return {
-      // Données principales
-      posts: [] as Post[], // Liste des posts
-      postsCount: 0, // Nombre total de posts
-      searchQuery: '', // Requête de recherche
-      localDB: new PouchDB('localDB'), // Base de données locale
+      posts: [] as Post[],
+      postsCount: 0,
+      searchQuery: '',
+      localDB: new PouchDB('localDB'),
       remoteDB: new PouchDB('http://admin:100403@localhost:5984/posts', {
-        // Configuration pour la synchronisation distante
         fetch: (url: RequestInfo, opts: RequestInit = {}) => {
-          opts.mode = 'cors' // Définit le mode CORS
+          opts.mode = 'cors'
           return fetch(url, opts)
         }
       })
@@ -96,9 +106,6 @@ export default {
   },
 
   methods: {
-    /**
-     * Crée un nouveau post avec des données par défaut.
-     */
     async addNewPost() {
       const newPost: Post = {
         _id: new Date().toISOString(),
@@ -106,15 +113,10 @@ export default {
         description: 'Description par défaut',
         attachments: {}
       }
-      await this.localDB.put(newPost) // Ajout dans la base locale
-      this.refreshPosts() // Rafraîchissement de la liste des posts
+      await this.localDB.put(newPost)
+      this.refreshPosts()
     },
 
-    /**
-     * Supprime un post à partir de son ID et de sa révision.
-     * @param id - Identifiant du post
-     * @param rev - Révision du post
-     */
     async deletePost(id: string, rev: string) {
       if (!id || !rev) {
         console.error('ID ou révision manquants pour la suppression')
@@ -124,32 +126,37 @@ export default {
       this.refreshPosts()
     },
 
-    /**
-     * Permet de modifier un post.
-     * @param postId - Identifiant du post à modifier
-     */
     async editPost(postId: string) {
       const post = this.posts.find((p) => p._id === postId)
       if (post) {
         const newName = prompt('Modifier le nom du post :', post.name)
         if (newName) {
-          post.name = newName
-          await this.localDB.put(post) // Met à jour dans la base locale
+          const updatedPost = { ...post, name: newName }
+          await this.localDB.put(updatedPost)
           this.refreshPosts()
         }
       }
     },
 
-    /**
-     * Rafraîchit la liste des posts depuis la base locale.
-     */
+    async editDescription(postId: string) {
+      const post = this.posts.find((p) => p._id === postId)
+      if (post) {
+        const newDescription = prompt('Modifier la description du post :', post.description)
+        if (newDescription) {
+          const updatedPost = { ...post, description: newDescription }
+          await this.localDB.put(updatedPost)
+          this.refreshPosts()
+        }
+      }
+    },
+
     async refreshPosts() {
       const allDocs = await this.localDB.allDocs({ include_docs: true })
       this.posts = allDocs.rows.map((row) => {
-        const doc = row.doc as Post // Cast pour l'interface `Post`
+        const doc = row.doc as PouchDocument
         return {
-          _id: doc._id || '',
-          _rev: doc._rev || '',
+          _id: doc._id,
+          _rev: doc._rev,
           name: doc.name || 'Sans nom',
           description: doc.description || 'Aucune description',
           attachments: doc.attachments || {}
@@ -158,43 +165,26 @@ export default {
       this.postsCount = this.posts.length
     },
 
-    /**
-     * Synchronise la base locale avec la base distante (vers local).
-     */
     async syncToLocal() {
       await this.localDB.replicate.from(this.remoteDB)
       this.refreshPosts()
     },
 
-    /**
-     * Synchronise la base locale avec la base distante (vers distant).
-     */
     async syncToRemote() {
       await this.localDB.replicate.to(this.remoteDB)
     },
 
-    /**
-     * Initialise un index sur le champ `name` pour des recherches rapides.
-     */
     async initializeIndex() {
       await this.localDB.createIndex({ index: { fields: ['name'] } })
     },
 
-    /**
-     * Recherche des posts par nom en utilisant une requête regex.
-     */
     async searchPosts() {
       const results = await this.localDB.find({
         selector: { name: { $regex: this.searchQuery } }
       })
-      this.posts = results.docs
+      this.posts = results.docs as Post[]
     },
 
-    /**
-     * Ajoute une pièce jointe à un post.
-     * @param postId - Identifiant du post
-     * @param event - Événement contenant le fichier
-     */
     async uploadAttachment(postId: string, event: Event) {
       const file = (event.target as HTMLInputElement).files?.[0]
       if (!file) {
@@ -212,7 +202,7 @@ export default {
             return
           }
 
-          const post = await this.localDB.get(postId)
+          const post = (await this.localDB.get(postId)) as PouchDocument
           if (!post._rev) {
             console.error('Révision (_rev) manquante pour le post')
             return
@@ -220,17 +210,21 @@ export default {
 
           const url = URL.createObjectURL(new Blob([arrayBuffer], { type: file.type }))
 
-          post.attachments = {
-            ...(post.attachments || {}),
-            [file.name]: { url, type: file.type }
+          const updatedPost = {
+            ...post,
+            attachments: {
+              ...(post.attachments || {}),
+              [file.name]: {
+                url: url as string,
+                type: file.type
+              } as Attachment
+            }
           }
 
-          await this.localDB.put(post)
+          await this.localDB.put(updatedPost)
           console.log('Pièce jointe ajoutée avec succès.')
           this.refreshPosts()
-        } catch (error) {
-          console.error('Erreur lors de l’ajout de la pièce jointe :', error)
-        }
+        } catch (error) {}
       }
 
       reader.onerror = (error) => {
@@ -241,9 +235,6 @@ export default {
     }
   },
 
-  /**
-   * Fonction exécutée au montage du composant pour charger les posts.
-   */
   async mounted() {
     this.refreshPosts()
   }
@@ -251,7 +242,6 @@ export default {
 </script>
 
 <style scoped>
-/* Conteneur principal */
 .infra-don {
   font-family: 'Roboto', sans-serif;
   padding: 20px;
@@ -260,14 +250,12 @@ export default {
   border-radius: 10px;
 }
 
-/* Titre principal */
 h1 {
   font-size: 2.5rem;
   color: #66bb6a;
   text-align: center;
 }
 
-/* Texte général */
 p {
   font-size: 1rem;
   color: #c8e6c9;
@@ -275,7 +263,6 @@ p {
   text-align: center;
 }
 
-/* Boutons d'actions */
 .actions,
 .search {
   display: flex;
@@ -284,7 +271,6 @@ p {
   margin-bottom: 20px;
 }
 
-/* Boutons globaux */
 .actions button,
 .search button {
   background-color: #66bb6a;
@@ -297,13 +283,11 @@ p {
   transition: background-color 0.3s;
 }
 
-/* Effets au survol des boutons */
 .actions button:hover,
 .search button:hover {
   background-color: #4caf50;
 }
 
-/* Zone de recherche */
 .search input {
   padding: 10px;
   border: 2px solid #66bb6a;
@@ -313,7 +297,6 @@ p {
   outline: none;
 }
 
-/* Carte de post */
 .post {
   background-color: #1e1e1e;
   border: 1px solid #4caf50;
@@ -325,27 +308,23 @@ p {
     box-shadow 0.2s;
 }
 
-/* Effet au survol de la carte */
 .post:hover {
   transform: scale(1.02);
   box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
 }
 
-/* Alignement du texte des posts */
 .post p {
   margin: 5px 0;
   text-align: left;
 }
 
-/* Actions des posts */
 .post-actions {
   display: flex;
-  gap: 15px; /* Espacement entre les boutons */
-  flex-wrap: wrap; /* Permet le retour à la ligne si nécessaire */
+  gap: 15px;
+  flex-wrap: wrap;
   margin-top: 10px;
 }
 
-/* Boutons des posts */
 .post button {
   background-color: #66bb6a;
   color: #121212;
@@ -357,14 +336,12 @@ p {
   transition: background-color 0.3s;
 }
 
-/* Effets au survol des boutons de post */
 .post button:hover {
   background-color: #4caf50;
 }
 
-/* Input pour l'ajout de fichier */
 input[type='file'] {
-  margin-top: 10px; /* Ajout d'espace au-dessus de l'input */
+  margin-top: 10px;
   background-color: #66bb6a;
   color: #121212;
   border: none;
@@ -373,7 +350,6 @@ input[type='file'] {
   cursor: pointer;
 }
 
-/* Style du bouton d'upload */
 input[type='file']::-webkit-file-upload-button {
   background-color: #2c3e50;
   color: #fff;
@@ -383,12 +359,10 @@ input[type='file']::-webkit-file-upload-button {
   cursor: pointer;
 }
 
-/* Effet au survol du bouton d'upload */
 input[type='file']::-webkit-file-upload-button:hover {
   background-color: #388e3c;
 }
 
-/* Style des images */
 .attachment-image {
   max-width: 100%;
   max-height: 200px;
